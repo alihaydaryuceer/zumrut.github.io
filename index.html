@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bulut Sayım v18 - Raf Hafızalı</title>
+    <title>Bulut Sayım v19 - Manuel Giriş Destekli</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         :root { --primary: #4834d4; --success: #22a6b3; --danger: #eb4d4b; --text: #2d3436; }
@@ -13,9 +13,9 @@
         .input-group { margin-bottom: 15px; }
         label { display: block; font-size: 12px; font-weight: bold; color: #636e72; margin-bottom: 5px; }
         input { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px; outline: none; }
-        /* Sabit kalacak raf kutusu için özel stil */
         #shelf { background-color: #f1f2f6; border-color: var(--primary); font-weight: bold; }
-        input:read-only { background-color: #fff; color: var(--success); font-weight: bold; border-color: var(--success); }
+        /* Barkod kutusu artık readonly değil, sadece odaklandığında renk değiştirir */
+        #barcode:focus { border-color: var(--success); box-shadow: 0 0 8px rgba(34, 166, 179, 0.2); }
         .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 10px; }
         .btn-add { background: var(--primary); }
         .btn-camera { background: #636e72; font-size: 14px; }
@@ -37,13 +37,13 @@
     <button class="btn btn-camera" id="camBtn" onclick="toggleCamera()">📷 KAMERAYI AÇ</button>
     
     <div class="input-group">
-        <label>📍 RAF KONUMU (Değiştirene kadar sabit kalır)</label>
-        <input type="text" id="shelf" placeholder="Raf girin (Örn: A-01)..." autocomplete="off">
+        <label>📍 RAF KONUMU</label>
+        <input type="text" id="shelf" placeholder="Raf girin..." autocomplete="off">
     </div>
 
     <div class="input-group">
-        <label>🏷️ OKUNAN BARKOD</label>
-        <input type="text" id="barcode" placeholder="Barkod okutun..." readonly>
+        <label>🏷️ BARKOD (Elle yazabilir veya okutabilirsiniz)</label>
+        <input type="text" id="barcode" placeholder="Barkod..." oninput="checkInput()">
     </div>
     
     <button class="btn btn-add" id="addBtn" onclick="processEntry()" disabled style="opacity: 0.5;">➕ LİSTEYE EKLE VE GÖNDER</button>
@@ -55,29 +55,36 @@
 </div>
 
 <script>
-    const CLOUD_URL = 'https://script.google.com/macros/s/AKfycbyhJ2SvVAlUu2u3Ycgz3ERJuAL49Qn9JULPwzJWQUXg2csRYzZpVuflSU28s7TmMJ81/exec'; // Kendi URL'nizi buraya yapıştırın
-    let localData = JSON.parse(localStorage.getItem('cloud_sayim_v18')) || [];
+    const CLOUD_URL = 'https://script.google.com/macros/s/AKfycbyhJ2SvVAlUu2u3Ycgz3ERJuAL49Qn9JULPwzJWQUXg2csRYzZpVuflSU28s7TmMJ81/exec'; 
+    let localData = JSON.parse(localStorage.getItem('cloud_sayim_v19')) || [];
     let html5QrCode;
     let isCameraOpen = false;
     let isPaused = false;
 
-    // Sayfa açıldığında son kullanılan rafı hatırla
     window.onload = () => {
         const lastShelf = localStorage.getItem('last_shelf');
         if(lastShelf) document.getElementById('shelf').value = lastShelf;
         updateUI();
     };
 
+    // Elle yazarken butonun aktif olması için kontrol
+    function checkInput() {
+        const barcodeVal = document.getElementById('barcode').value.trim();
+        const addBtn = document.getElementById('addBtn');
+        if (barcodeVal.length > 0) {
+            addBtn.disabled = false;
+            addBtn.style.opacity = "1";
+        } else {
+            addBtn.disabled = true;
+            addBtn.style.opacity = "0.5";
+        }
+    }
+
     function toggleCamera() {
         if (!isCameraOpen) {
             html5QrCode = new Html5Qrcode("reader");
             const config = { fps: 20, qrbox: { width: 280, height: 150 }, aspectRatio: 1.0 };
-            const formats = [ 
-                Html5QrcodeSupportedFormats.EAN_13, Html5QrcodeSupportedFormats.EAN_8, 
-                Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.UPC_A 
-            ];
-
-            html5QrCode.start({ facingMode: "environment" }, { ...config, formatsToSupport: formats }, onScanSuccess)
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
             .then(() => {
                 isCameraOpen = true;
                 document.getElementById('camBtn').innerText = "📷 KAMERAYI KAPAT";
@@ -100,40 +107,36 @@
         html5QrCode.pause();
         setScanStatus(false, "ONAY BEKLENİYOR");
         document.getElementById('barcode').value = decodedText;
-        document.getElementById('lastScanned').innerText = "✓ " + decodedText;
-        const addBtn = document.getElementById('addBtn');
-        addBtn.disabled = false;
-        addBtn.style.opacity = "1";
+        checkInput();
         playBeep(1000);
     }
 
     function processEntry() {
         const shelfInput = document.getElementById('shelf');
+        const barcodeInput = document.getElementById('barcode');
         const shelf = shelfInput.value.trim() || "Genel";
-        const barcode = document.getElementById('barcode').value.trim();
+        const barcode = barcodeInput.value.trim();
+        
         if(!barcode) return;
 
-        // Rafı hafızaya al
         localStorage.setItem('last_shelf', shelf);
-
         const entry = { shelf, barcode, count: 1, device: "Mobil" };
         localData.push({ ...entry, synced: false });
         save();
         
         if(navigator.onLine) sendToCloud(entry, localData.length - 1);
         
-        // Sadece barkodu sıfırla, RAF KALSIN!
-        document.getElementById('barcode').value = "";
-        const addBtn = document.getElementById('addBtn');
-        addBtn.disabled = true;
-        addBtn.style.opacity = "0.5";
-        
+        // Temizlik ve Odaklanma
+        barcodeInput.value = "";
+        checkInput();
         updateUI();
 
         if (isCameraOpen) {
             isPaused = false;
             html5QrCode.resume();
             setScanStatus(true);
+        } else {
+            barcodeInput.focus(); // Kamera kapalıysa elle yazım için odakla
         }
     }
 
@@ -157,7 +160,7 @@
         } catch (e) {}
     }
 
-    function save() { localStorage.setItem('cloud_sayim_v18', JSON.stringify(localData)); }
+    function save() { localStorage.setItem('cloud_sayim_v19', JSON.stringify(localData)); }
     
     function updateUI() {
         const total = localData.length;
