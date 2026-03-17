@@ -3,14 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bulut Sayım Terminali v22</title>
+    <title>Bulut Sayım v23 - Geri Al Destekli</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         :root { --primary: #4834d4; --success: #22a6b3; --danger: #eb4d4b; --warning: #f9ca24; --dark: #2d3436; }
         body { font-family: sans-serif; background: #f0f2f5; margin: 0; padding: 10px; color: var(--dark); }
         .container { max-width: 500px; margin: auto; background: white; padding: 15px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
         
-        /* Kamera Alanı */
         .scan-overlay { position: relative; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 10px; min-height: 200px; }
         #reader { width: 100%; }
         #torchBtn { position: absolute; top: 10px; right: 10px; z-index: 100; background: rgba(0,0,0,0.6); border: 1px solid white; color: white; padding: 10px; border-radius: 50%; cursor: pointer; display: none; font-size: 18px; line-height: 1; }
@@ -21,13 +20,13 @@
         input { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px; outline: none; }
         input:focus { border-color: var(--primary); }
 
-        .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 10px; }
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 10px; transition: 0.2s; }
         .btn-add { background: var(--primary); }
+        .btn-undo { background: var(--warning); color: #856404; font-size: 14px; margin-top: 5px; }
         .btn-camera { background: #636e72; font-size: 14px; }
         
         #memoryAlert { display: none; background: #fff9db; border: 1px solid var(--warning); color: #856404; padding: 10px; border-radius: 8px; font-size: 12px; margin-bottom: 10px; }
         
-        /* Özet Tablosu */
         .history { margin-top: 15px; border-top: 1px solid #eee; padding-top: 15px; }
         .history h4 { margin: 0 0 10px 0; font-size: 13px; color: #b2bec3; text-transform: uppercase; }
         table { width: 100%; font-size: 12px; border-collapse: collapse; }
@@ -59,11 +58,12 @@
     </div>
 
     <div class="input-group" style="margin-bottom: 12px;">
-        <label>🏷️ BARKOD (OKUTUN VEYA YAZIN)</label>
+        <label>🏷️ BARKOD</label>
         <input type="text" id="barcode" placeholder="Barkodu buraya girin..." oninput="checkInput()">
     </div>
     
     <button class="btn btn-add" id="addBtn" onclick="processEntry()" disabled style="opacity: 0.5;">➕ LİSTEYE EKLE VE GÖNDER</button>
+    <button class="btn btn-undo" id="undoBtn" onclick="undoLastEntry()" style="display: none;">↩️ SON KAYDI SİL / GERİ AL</button>
 
     <div class="history">
         <h4>🕒 SON İŞLEMLER</h4>
@@ -77,8 +77,8 @@
 </div>
 
 <script>
-    const CLOUD_URL = 'https://script.google.com/macros/s/AKfycbyhJ2SvVAlUu2u3Ycgz3ERJuAL49Qn9JULPwzJWQUXg2csRYzZpVuflSU28s7TmMJ81/exec'; // <--- BURAYI DEĞİŞTİRİN
-    let localData = JSON.parse(localStorage.getItem('cloud_sayim_v22')) || [];
+    const CLOUD_URL = 'https://script.google.com/macros/s/AKfycbyhJ2SvVAlUu2u3Ycgz3ERJuAL49Qn9JULPwzJWQUXg2csRYzZpVuflSU28s7TmMJ81/exec'; 
+    let localData = JSON.parse(localStorage.getItem('cloud_sayim_v23')) || [];
     let html5QrCode;
     let isCameraOpen = false;
     let isPaused = false;
@@ -110,28 +110,20 @@
         if (!isCameraOpen) {
             html5QrCode = new Html5Qrcode("reader");
             const config = { fps: 20, qrbox: { width: 280, height: 150 }, aspectRatio: 1.0 };
-            
             html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
             .then(() => {
                 isCameraOpen = true;
                 document.getElementById('camBtn').innerText = "📷 KAMERAYI KAPAT";
-                
-                // Fener kontrolü (Yarım saniye bekleme ile hata önleme)
                 setTimeout(() => {
                     try {
                         const track = html5QrCode.getRunningTrack();
-                        if (track && track.getCapabilities().torch) {
-                            document.getElementById('torchBtn').style.display = 'block';
-                        }
-                    } catch (e) { console.log("Fener desteklenmiyor."); }
+                        if (track && track.getCapabilities().torch) document.getElementById('torchBtn').style.display = 'block';
+                    } catch (e) {}
                 }, 500);
-
-            }).catch(err => alert("Kamera açılamadı: " + err));
+            }).catch(err => alert("Hata: " + err));
         } else {
             html5QrCode.stop().then(() => {
                 isCameraOpen = false;
-                isPaused = false;
-                torchActive = false;
                 document.getElementById('camBtn').innerText = "📷 KAMERAYI AÇ";
                 document.getElementById('torchBtn').style.display = 'none';
                 document.getElementById("reader").innerHTML = "";
@@ -143,9 +135,8 @@
         try {
             torchActive = !torchActive;
             html5QrCode.applyVideoConstraints({ advanced: [{ torch: torchActive }] });
-            document.getElementById('torchBtn').style.background = torchActive ? '#f9ca24' : 'rgba(0,0,0,0.6)';
             document.getElementById('torchBtn').innerText = torchActive ? '🔆' : '🔦';
-        } catch (e) { alert("Fener hatası."); }
+        } catch (e) {}
     }
 
     function onScanSuccess(decodedText) {
@@ -155,7 +146,6 @@
         document.getElementById('barcode').value = decodedText;
         checkInput();
         playBeep(1000);
-        if(navigator.vibrate) navigator.vibrate(100);
     }
 
     function processEntry() {
@@ -164,7 +154,7 @@
         const count = document.getElementById('count').value || 1;
         
         localStorage.setItem('last_shelf', shelf);
-        const entry = { shelf, barcode, count, synced: false };
+        const entry = { shelf, barcode, count, synced: false, timestamp: Date.now() };
         
         localData.unshift(entry); 
         save();
@@ -173,15 +163,27 @@
         
         document.getElementById('barcode').value = "";
         document.getElementById('count').value = 1;
-        document.getElementById('memoryAlert').style.display = "none";
         checkInput();
         updateUI();
 
-        if (isCameraOpen) { 
-            isPaused = false; 
-            html5QrCode.resume(); 
-        } else {
-            document.getElementById('barcode').focus();
+        if (isCameraOpen) { isPaused = false; html5QrCode.resume(); }
+    }
+
+    function undoLastEntry() {
+        if (localData.length === 0) return;
+        
+        const lastEntry = localData[0];
+        if (confirm(`${lastEntry.barcode} barkodlu son kaydı silmek istediğinize emin misiniz?`)) {
+            // Google Tabloya "SİLİNDİ" bilgisini gönderiyoruz
+            if (navigator.onLine) {
+                const undoEntry = { ...lastEntry, count: -lastEntry.count, note: "GERI ALINDI" };
+                fetch(CLOUD_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(undoEntry) });
+            }
+            
+            localData.shift(); // İlk elemanı (son kaydı) sil
+            save();
+            updateUI();
+            alert("Son kayıt silindi. Tabloya eksi bakiye olarak yansıtıldı.");
         }
     }
 
@@ -191,14 +193,18 @@
             localData[index].synced = true;
             save();
             updateUI();
-        } catch (e) { console.log("Bulut hatası"); }
+        } catch (e) {}
     }
 
-    function save() { localStorage.setItem('cloud_sayim_v22', JSON.stringify(localData)); }
+    function save() { localStorage.setItem('cloud_sayim_v23', JSON.stringify(localData)); }
     
     function updateUI() {
         const historyBody = document.getElementById('historyBody');
+        const undoBtn = document.getElementById('undoBtn');
         historyBody.innerHTML = "";
+        
+        undoBtn.style.display = localData.length > 0 ? "block" : "none";
+
         localData.slice(0, 5).forEach(item => {
             const row = `<tr>
                 <td>${item.shelf}</td>
