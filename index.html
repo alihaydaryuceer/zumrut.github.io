@@ -3,19 +3,31 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bulut Sayım v19 - Manuel Giriş Destekli</title>
+    <title>Bulut Sayım v20 - Hafıza Dedektörü</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
-        :root { --primary: #4834d4; --success: #22a6b3; --danger: #eb4d4b; --text: #2d3436; }
+        :root { --primary: #4834d4; --success: #22a6b3; --danger: #eb4d4b; --warning: #f9ca24; --text: #2d3436; }
         body { font-family: sans-serif; background: #f0f2f5; margin: 0; padding: 10px; }
         .container { max-width: 500px; margin: auto; background: white; padding: 15px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.1); }
         #reader { width: 100%; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 10px; }
         .input-group { margin-bottom: 15px; }
         label { display: block; font-size: 12px; font-weight: bold; color: #636e72; margin-bottom: 5px; }
         input { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px; outline: none; }
-        #shelf { background-color: #f1f2f6; border-color: var(--primary); font-weight: bold; }
-        /* Barkod kutusu artık readonly değil, sadece odaklandığında renk değiştirir */
-        #barcode:focus { border-color: var(--success); box-shadow: 0 0 8px rgba(34, 166, 179, 0.2); }
+        
+        /* Uyarı Kutusu Stili */
+        #memoryAlert { 
+            display: none; 
+            background-color: #fff9db; 
+            border: 1px solid var(--warning); 
+            color: #856404; 
+            padding: 10px; 
+            border-radius: 8px; 
+            font-size: 13px; 
+            margin-bottom: 15px;
+            animation: fadeIn 0.3s;
+        }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
         .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 10px; }
         .btn-add { background: var(--primary); }
         .btn-camera { background: #636e72; font-size: 14px; }
@@ -36,14 +48,16 @@
     
     <button class="btn btn-camera" id="camBtn" onclick="toggleCamera()">📷 KAMERAYI AÇ</button>
     
+    <div id="memoryAlert"></div>
+
     <div class="input-group">
-        <label>📍 RAF KONUMU</label>
+        <label>📍 GÜNCEL RAF KONUMU</label>
         <input type="text" id="shelf" placeholder="Raf girin..." autocomplete="off">
     </div>
 
     <div class="input-group">
-        <label>🏷️ BARKOD (Elle yazabilir veya okutabilirsiniz)</label>
-        <input type="text" id="barcode" placeholder="Barkod..." oninput="checkInput()">
+        <label>🏷️ BARKOD</label>
+        <input type="text" id="barcode" placeholder="Okutun veya yazın..." oninput="checkInput()">
     </div>
     
     <button class="btn btn-add" id="addBtn" onclick="processEntry()" disabled style="opacity: 0.5;">➕ LİSTEYE EKLE VE GÖNDER</button>
@@ -56,7 +70,7 @@
 
 <script>
     const CLOUD_URL = 'https://script.google.com/macros/s/AKfycbyhJ2SvVAlUu2u3Ycgz3ERJuAL49Qn9JULPwzJWQUXg2csRYzZpVuflSU28s7TmMJ81/exec'; 
-    let localData = JSON.parse(localStorage.getItem('cloud_sayim_v19')) || [];
+    let localData = JSON.parse(localStorage.getItem('cloud_sayim_v20')) || [];
     let html5QrCode;
     let isCameraOpen = false;
     let isPaused = false;
@@ -67,17 +81,26 @@
         updateUI();
     };
 
-    // Elle yazarken butonun aktif olması için kontrol
     function checkInput() {
         const barcodeVal = document.getElementById('barcode').value.trim();
-        const addBtn = document.getElementById('addBtn');
-        if (barcodeVal.length > 0) {
-            addBtn.disabled = false;
-            addBtn.style.opacity = "1";
+        const alertBox = document.getElementById('memoryAlert');
+        
+        // HAFIZA SORGULAMA: Bu barkod daha önce girilmiş mi?
+        if(barcodeVal.length > 2) {
+            const previousRecord = localData.find(item => item.barcode === barcodeVal);
+            if(previousRecord) {
+                alertBox.style.display = "block";
+                alertBox.innerHTML = `💡 <b>Hafıza Notu:</b> Bu ürün daha önce <b>${previousRecord.shelf}</b> rafına girilmiş.`;
+            } else {
+                alertBox.style.display = "none";
+            }
         } else {
-            addBtn.disabled = true;
-            addBtn.style.opacity = "0.5";
+            alertBox.style.display = "none";
         }
+
+        const addBtn = document.getElementById('addBtn');
+        addBtn.disabled = barcodeVal.length === 0;
+        addBtn.style.opacity = barcodeVal.length === 0 ? "0.5" : "1";
     }
 
     function toggleCamera() {
@@ -107,7 +130,7 @@
         html5QrCode.pause();
         setScanStatus(false, "ONAY BEKLENİYOR");
         document.getElementById('barcode').value = decodedText;
-        checkInput();
+        checkInput(); // Hafızayı kontrol et
         playBeep(1000);
     }
 
@@ -126,8 +149,8 @@
         
         if(navigator.onLine) sendToCloud(entry, localData.length - 1);
         
-        // Temizlik ve Odaklanma
         barcodeInput.value = "";
+        document.getElementById('memoryAlert').style.display = "none"; // Uyarıyı kapat
         checkInput();
         updateUI();
 
@@ -135,20 +158,13 @@
             isPaused = false;
             html5QrCode.resume();
             setScanStatus(true);
-        } else {
-            barcodeInput.focus(); // Kamera kapalıysa elle yazım için odakla
         }
     }
 
     function setScanStatus(active, message = "") {
         const statusEl = document.getElementById('scanStatus');
-        if (active) {
-            statusEl.innerText = "TARANIYOR...";
-            statusEl.className = "status-active";
-        } else {
-            statusEl.innerText = message || "BEKLEMEDE";
-            statusEl.className = "status-wait";
-        }
+        statusEl.innerText = active ? "TARANIYOR..." : (message || "BEKLEMEDE");
+        statusEl.className = active ? "status-active" : "status-wait";
     }
 
     async function sendToCloud(item, index) {
@@ -160,7 +176,7 @@
         } catch (e) {}
     }
 
-    function save() { localStorage.setItem('cloud_sayim_v19', JSON.stringify(localData)); }
+    function save() { localStorage.setItem('cloud_sayim_v20', JSON.stringify(localData)); }
     
     function updateUI() {
         const total = localData.length;
