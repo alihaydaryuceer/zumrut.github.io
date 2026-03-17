@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Bulut Sayım v23 - Geri Al Destekli</title>
+    <title>Bulut Sayım v24 - Akıllı Silme</title>
     <script src="https://unpkg.com/html5-qrcode"></script>
     <style>
         :root { --primary: #4834d4; --success: #22a6b3; --danger: #eb4d4b; --warning: #f9ca24; --dark: #2d3436; }
@@ -12,7 +12,7 @@
         
         .scan-overlay { position: relative; border-radius: 12px; overflow: hidden; background: #000; margin-bottom: 10px; min-height: 200px; }
         #reader { width: 100%; }
-        #torchBtn { position: absolute; top: 10px; right: 10px; z-index: 100; background: rgba(0,0,0,0.6); border: 1px solid white; color: white; padding: 10px; border-radius: 50%; cursor: pointer; display: none; font-size: 18px; line-height: 1; }
+        #torchBtn { position: absolute; top: 10px; right: 10px; z-index: 100; background: rgba(0,0,0,0.6); border: 1px solid white; color: white; padding: 10px; border-radius: 50%; cursor: pointer; display: none; font-size: 18px; }
         
         .input-row { display: flex; gap: 10px; margin-bottom: 12px; }
         .input-group { flex: 1; }
@@ -20,7 +20,7 @@
         input { width: 100%; padding: 12px; border: 2px solid #ddd; border-radius: 8px; box-sizing: border-box; font-size: 16px; outline: none; }
         input:focus { border-color: var(--primary); }
 
-        .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 10px; transition: 0.2s; }
+        .btn { width: 100%; padding: 15px; border: none; border-radius: 8px; color: white; font-weight: bold; font-size: 16px; cursor: pointer; margin-bottom: 10px; }
         .btn-add { background: var(--primary); }
         .btn-undo { background: var(--warning); color: #856404; font-size: 14px; margin-top: 5px; }
         .btn-camera { background: #636e72; font-size: 14px; }
@@ -49,7 +49,7 @@
     <div class="input-row">
         <div class="input-group" style="flex: 2;">
             <label>📍 RAF KONUMU</label>
-            <input type="text" id="shelf" placeholder="Örn: A-01" autocomplete="off">
+            <input type="text" id="shelf" placeholder="A-01" autocomplete="off">
         </div>
         <div class="input-group" style="flex: 1;">
             <label>🔢 ADET</label>
@@ -59,14 +59,14 @@
 
     <div class="input-group" style="margin-bottom: 12px;">
         <label>🏷️ BARKOD</label>
-        <input type="text" id="barcode" placeholder="Barkodu buraya girin..." oninput="checkInput()">
+        <input type="text" id="barcode" placeholder="Barkod okutun..." oninput="checkInput()">
     </div>
     
     <button class="btn btn-add" id="addBtn" onclick="processEntry()" disabled style="opacity: 0.5;">➕ LİSTEYE EKLE VE GÖNDER</button>
-    <button class="btn btn-undo" id="undoBtn" onclick="undoLastEntry()" style="display: none;">↩️ SON KAYDI SİL / GERİ AL</button>
+    <button class="btn btn-undo" id="undoBtn" onclick="undoLastEntry()" style="display: none;">↩️ SON KAYDI TABLODAN SİL</button>
 
     <div class="history">
-        <h4>🕒 SON İŞLEMLER</h4>
+        <h4>🕒 SON 5 İŞLEM</h4>
         <table>
             <thead>
                 <tr><th>Raf</th><th>Barkod</th><th>Adet</th><th>Durum</th></tr>
@@ -77,8 +77,8 @@
 </div>
 
 <script>
-    const CLOUD_URL = 'https://script.google.com/macros/s/AKfycbyhJ2SvVAlUu2u3Ycgz3ERJuAL49Qn9JULPwzJWQUXg2csRYzZpVuflSU28s7TmMJ81/exec'; 
-    let localData = JSON.parse(localStorage.getItem('cloud_sayim_v23')) || [];
+    const CLOUD_URL = 'https://script.google.com/macros/s/AKfycbyU_uvD1L_anysK2CAgn-7GyR33XRiCcwpjTNsPZO6BZ1Ij-CDi3a8H_n7eou1-2L6B/exec'; // <--- Yeni Deployment URL'nizi buraya yapıştırın
+    let localData = JSON.parse(localStorage.getItem('cloud_sayim_v24')) || [];
     let html5QrCode;
     let isCameraOpen = false;
     let isPaused = false;
@@ -120,7 +120,7 @@
                         if (track && track.getCapabilities().torch) document.getElementById('torchBtn').style.display = 'block';
                     } catch (e) {}
                 }, 500);
-            }).catch(err => alert("Hata: " + err));
+            }).catch(err => alert("Kamera hatası: " + err));
         } else {
             html5QrCode.stop().then(() => {
                 isCameraOpen = false;
@@ -152,9 +152,10 @@
         const shelf = document.getElementById('shelf').value.trim() || "Genel";
         const barcode = document.getElementById('barcode').value.trim();
         const count = document.getElementById('count').value || 1;
-        
+        const timestamp = Date.now(); // Kimlik numarası
+
         localStorage.setItem('last_shelf', shelf);
-        const entry = { shelf, barcode, count, synced: false, timestamp: Date.now() };
+        const entry = { shelf, barcode, count, timestamp, synced: false, action: "ADD" };
         
         localData.unshift(entry); 
         save();
@@ -171,19 +172,20 @@
 
     function undoLastEntry() {
         if (localData.length === 0) return;
-        
         const lastEntry = localData[0];
-        if (confirm(`${lastEntry.barcode} barkodlu son kaydı silmek istediğinize emin misiniz?`)) {
-            // Google Tabloya "SİLİNDİ" bilgisini gönderiyoruz
+        
+        if (confirm(`${lastEntry.barcode} barkodlu kaydı tablodan SİLMEK istediğinize emin misiniz?`)) {
             if (navigator.onLine) {
-                const undoEntry = { ...lastEntry, count: -lastEntry.count, note: "GERI ALINDI" };
-                fetch(CLOUD_URL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(undoEntry) });
+                fetch(CLOUD_URL, { 
+                    method: 'POST', 
+                    mode: 'no-cors', 
+                    body: JSON.stringify({ action: "DELETE", barcode: lastEntry.barcode, timestamp: lastEntry.timestamp }) 
+                });
             }
-            
-            localData.shift(); // İlk elemanı (son kaydı) sil
+            localData.shift(); 
             save();
             updateUI();
-            alert("Son kayıt silindi. Tabloya eksi bakiye olarak yansıtıldı.");
+            alert("İşlem geri alındı ve satır silindi.");
         }
     }
 
@@ -196,13 +198,12 @@
         } catch (e) {}
     }
 
-    function save() { localStorage.setItem('cloud_sayim_v23', JSON.stringify(localData)); }
+    function save() { localStorage.setItem('cloud_sayim_v24', JSON.stringify(localData)); }
     
     function updateUI() {
         const historyBody = document.getElementById('historyBody');
         const undoBtn = document.getElementById('undoBtn');
         historyBody.innerHTML = "";
-        
         undoBtn.style.display = localData.length > 0 ? "block" : "none";
 
         localData.slice(0, 5).forEach(item => {
